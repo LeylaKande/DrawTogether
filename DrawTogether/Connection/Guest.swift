@@ -4,7 +4,7 @@ final class Guest {
     private let browser = NWBrowser(for: .bonjour(type: PeerConnection.serviceType, domain: nil), using: .tcp)
     private var connection: NWConnection?
 
-    init(onStatus: @escaping (String) -> Void) {
+    init(canvas: CanvasModel, onStatus: @escaping (String) -> Void) {
         browser.stateUpdateHandler = { [weak self] state in
             guard let self, self.connection == nil else { return }
             switch state {
@@ -23,10 +23,19 @@ final class Guest {
             self.connection = connection
             self.browser.cancel()
             onStatus("Connecting…")
-            PeerConnection.start(connection, peer: "host") { [weak self] status in
+            PeerConnection.start(connection, peer: "host", onStatus: { [weak self] status in
                 guard self != nil else { return }
                 onStatus(status)
-            }
+            }, onReady: { [weak self] connection in
+                PeerConnection.receiveSnapshots(from: connection, onSnapshot: { [weak self] snapshot in
+                    guard self != nil else { return }
+                    canvas.apply(snapshot)
+                }, onEnd: { [weak self, weak connection] error in
+                    guard self != nil, let connection, case .ready = connection.state else { return }
+                    onStatus(error.map { "Connection ended: \($0.localizedDescription)" } ?? "Connection ended")
+                    connection.cancel()
+                })
+            })
         }
         browser.start(queue: .main)
     }
