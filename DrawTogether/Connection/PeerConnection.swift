@@ -1,21 +1,29 @@
 import Foundation
 import Network
-import Observation
 
 // All session and connection callbacks run on the main queue.
-@Observable
 final class PeerConnection {
     static let serviceType = "_drawtogether._tcp"
+    static func isValidSessionCode(_ code: String) -> Bool {
+        let digits = code.utf8
+        return digits.count == 5 && digits.allSatisfy { (48...57).contains($0) }
+    }
+
+    static func sessionNamePrefix(for code: String) -> String {
+        "DrawTogether-\(code)-"
+    }
+
     private static let maximumPayloadSize = 4 * 1024 * 1024
 
     enum Message: Codable {
         case snapshot(CanvasModel.Snapshot)
+        case lobby(playerCount: Int)
+        case startGame(CanvasModel.Snapshot)
         case requestTurn
+        case yieldTurn
+        case relinquishTurn(CanvasModel.Snapshot)
         case grantTurn(CanvasModel.Snapshot)
-    }
-
-    private enum Turn {
-        case drawing, watching, requesting
+        case turnUnavailable
     }
 
     private enum SnapshotError: LocalizedError {
@@ -31,47 +39,37 @@ final class PeerConnection {
     }
 
     private let connection: NWConnection
-    private let canvas: CanvasModel
-    private let onStatus: (String) -> Void
-    private var turn: Turn
+    private let onMessage: (Message) -> Void
+    private let onEnd: (Error?) -> Void
     private(set) var isReady = false
     private var hasStartedReceiving = false
+    private var hasEnded = false
     private var lastSendTime = -Double.infinity
     private var isSendingSnapshot = false
-    private var needsSnapshot = false
-
-    var canDraw: Bool { turn == .drawing }
-    var canTakeTurn: Bool { isReady && turn == .watching }
-    var isRequestingTurn: Bool { isReady && turn == .requesting }
+    private var pendingSnapshot: CanvasModel.Snapshot?
 
     init(
         _ connection: NWConnection,
-        canvas: CanvasModel,
-        startsDrawing: Bool,
-        peerName: String,
-        onStatus: @escaping (String) -> Void
+        onReady: @escaping () -> Void,
+        onMessage: @escaping (Message) -> Void,
+        onEnd: @escaping (Error?) -> Void
     ) {
         self.connection = connection
-        self.canvas = canvas
-        self.onStatus = onStatus
-        turn = startsDrawing ? .drawing : .watching
+        self.onMessage = onMessage
+        self.onEnd = onEnd
 
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
                 self.isReady = true
-                onStatus("Connected to \(peerName)")
-                self.publishSnapshot(immediate: true)
                 if !self.hasStartedReceiving {
                     self.hasStartedReceiving = true
+                    onReady()
                     self.receiveMessage()
                 }
             case .waiting(let error), .failed(let error):
-                self.isReady = false
-                onStatus("Connection unavailable: \(error.localizedDescription)")
-            case .cancelled:
-                self.isReady = false
+                self.endConnection(error)
             default:
                 break
             }
@@ -83,53 +81,35 @@ final class PeerConnection {
         connection.cancel()
     }
 
-    func requestTurn() {
-        guard canTakeTurn else { return }
-        turn = .requesting
-        send(.requestTurn)
-    }
-
-    func publishSnapshot(immediate: Bool = false) {
-        guard isReady, canDraw else { return }
+    func publishSnapshot(_ snapshot: CanvasModel.Snapshot, immediate: Bool) {
+        guard isReady else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard immediate || now - lastSendTime >= 1.0 / 20 else { return }
-
         guard !isSendingSnapshot else {
-            needsSnapshot = true
+            pendingSnapshot = snapshot
             return
         }
 
         isSendingSnapshot = true
-        needsSnapshot = false
         lastSendTime = now
-        send(.snapshot(canvas.snapshot)) { [weak self] in
+        sendFrame(.snapshot(snapshot)) { [weak self] in
             guard let self else { return }
             self.isSendingSnapshot = false
-            if self.needsSnapshot {
-                self.publishSnapshot(immediate: true)
+            if let pending = self.pendingSnapshot {
+                self.pendingSnapshot = nil
+                self.publishSnapshot(pending, immediate: true)
             }
         }
     }
 
-    private func handle(_ message: Message) {
-        switch message {
-        case .snapshot(let snapshot) where !canDraw:
-            canvas.apply(snapshot)
-        case .requestTurn where canDraw:
-            canvas.finishCurrentStroke()
-            turn = .watching
-            needsSnapshot = false
-            // TCP delivers this after any snapshot already submitted for sending.
-            send(.grantTurn(canvas.snapshot))
-        case .grantTurn(let snapshot) where turn == .requesting:
-            canvas.apply(snapshot)
-            turn = .drawing
-        default:
-            endConnection(SnapshotError.invalidFrame)
-        }
+    // A control message can supersede a queued snapshot at a turn boundary.
+    func send(_ message: Message) {
+        guard isReady else { return }
+        pendingSnapshot = nil
+        sendFrame(message)
     }
 
-    private func send(_ message: Message, onSent: (() -> Void)? = nil) {
+    private func sendFrame(_ message: Message, onSent: (() -> Void)? = nil) {
         do {
             let frame = try Self.frame(message)
             connection.send(content: frame, completion: .contentProcessed { [weak self] error in
@@ -145,10 +125,11 @@ final class PeerConnection {
     }
 
     private func endConnection(_ error: Error?) {
-        guard isReady else { return }
+        guard !hasEnded else { return }
+        hasEnded = true
         isReady = false
-        onStatus(error.map { "Connection ended: \($0.localizedDescription)" } ?? "Connection ended")
         connection.cancel()
+        onEnd(error)
     }
 
     static func frame(_ message: Message) throws -> Data {
@@ -189,7 +170,7 @@ final class PeerConnection {
                     return
                 }
                 do {
-                    self.handle(try JSONDecoder().decode(Message.self, from: payload))
+                    self.onMessage(try JSONDecoder().decode(Message.self, from: payload))
                     if self.isReady {
                         self.receiveMessage()
                     }

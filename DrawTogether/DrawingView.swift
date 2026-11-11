@@ -5,103 +5,179 @@ struct DrawingView: View {
 
     @State private var host: Host?
     @State private var guest: Guest?
+    @State private var joinCode = ""
     @State private var connectionStatus = "Offline"
 
     private let canvasAspectRatio: CGFloat = 3.0 / 4.0
 
-    private var peer: PeerConnection? { host?.peer ?? guest?.peer }
-    private var canDraw: Bool { peer?.canDraw ?? (guest == nil) }
+    private var canDraw: Bool { host?.canDraw ?? guest?.canDraw ?? false }
+    private var canTakeTurn: Bool { host?.canTakeTurn ?? guest?.canTakeTurn ?? false }
+    private var playerCount: Int? { host?.playerCount ?? guest?.playerCount }
 
     var body: some View {
-        let strokes = canvas.snapshot.strokes
-        let currentStroke = canvas.snapshot.currentStroke
-
         NavigationStack {
-            GeometryReader { geometry in
-                let width = min(geometry.size.width, geometry.size.height * canvasAspectRatio)
-                let size = CGSize(width: width, height: width / canvasAspectRatio)
-
-                Canvas { context, size in
-                    for stroke in strokes {
-                        draw(stroke, in: context, size: size)
-                    }
-                    draw(currentStroke, in: context, size: size)
+            Group {
+                if host?.hasStarted == true || guest?.hasStarted == true {
+                    game
+                } else if host != nil || guest != nil {
+                    lobby
+                } else {
+                    startScreen
                 }
-                .frame(width: size.width, height: size.height)
-                .background(.white)
-                .clipped()
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard canDraw, size.width > 0 else { return }
-                            canvas.appendPoint(normalized(value.location, in: size))
-                            peer?.publishSnapshot()
-                        }
-                        .onEnded { value in
-                            guard canDraw, size.width > 0 else { return }
-                            canvas.finishStroke(at: normalized(value.location, in: size))
-                            peer?.publishSnapshot(immediate: true)
-                        },
-                    including: canDraw ? .all : .none
-                )
-                .accessibilityLabel("Drawing canvas")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .navigationTitle("Draw Together")
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(connectionStatus)
-                        if let peer, peer.isReady {
-                            Text(peer.canDraw ? "You’re drawing" : "You’re watching")
-                        }
-                    }
-                    .font(.footnote)
-                    Spacer()
-                    if let peer, peer.canTakeTurn || peer.isRequestingTurn {
-                        Button(peer.isRequestingTurn ? "Taking Turn…" : "Take Turn") {
-                            peer.requestTurn()
-                        }
-                        .disabled(peer.isRequestingTurn)
-                    }
-                    if host != nil || guest != nil {
-                        Button("Disconnect") {
-                            canvas.finishCurrentStroke()
-                            host = nil
-                            guest = nil
-                            connectionStatus = "Offline"
-                        }
-                    } else {
-                        Button("Host") {
-                            connectionStatus = "Starting host…"
-                            do {
-                                host = try Host(canvas: canvas) { connectionStatus = $0 }
-                            } catch {
-                                connectionStatus = "Host unavailable: \(error.localizedDescription)"
-                            }
-                        }
-                        Button("Join") {
-                            connectionStatus = "Looking for host…"
-                            guest = Guest(canvas: canvas) { connectionStatus = $0 }
-                        }
-                    }
+        }
+    }
+
+    private var startScreen: some View {
+        VStack(spacing: 16) {
+            Button("Host Session") {
+                canvas.clear()
+                connectionStatus = "Starting session…"
+                do {
+                    host = try Host(canvas: canvas) { connectionStatus = $0 }
+                } catch {
+                    connectionStatus = "Host unavailable: \(error.localizedDescription)"
                 }
-                .buttonStyle(.bordered)
-                .padding()
-                .background(.bar)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Clear") {
-                        canvas.clear()
-                        peer?.publishSnapshot(immediate: true)
-                    }
-                    .disabled(!canDraw || (strokes.isEmpty && currentStroke.isEmpty))
-                }
+            .buttonStyle(.borderedProminent)
+
+            TextField("5-digit session code", text: $joinCode)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 240)
+                .accessibilityLabel("5-digit session code")
+
+            Button("Join Session") {
+                canvas.clear()
+                connectionStatus = "Looking for session \(joinCode)…"
+                guest = Guest(code: joinCode, canvas: canvas) { connectionStatus = $0 }
+            }
+            .buttonStyle(.bordered)
+            .disabled(!PeerConnection.isValidSessionCode(joinCode))
+
+            if connectionStatus != "Offline" {
+                Text(connectionStatus)
+                    .font(.footnote)
             }
         }
+        .padding()
+    }
+
+    private var lobby: some View {
+        VStack(spacing: 16) {
+            Text("Lobby")
+                .font(.title)
+            if let code = host?.code ?? guest?.code {
+                Text("Session code")
+                    .font(.subheadline)
+                Text(code)
+                    .font(.largeTitle.monospacedDigit())
+                    .textSelection(.enabled)
+            }
+            if let playerCount {
+                Text("Players in session: \(playerCount)")
+                    .font(.headline)
+            }
+            Text(connectionStatus)
+                .font(.footnote)
+            if let playerCount {
+                if host == nil {
+                    Text("Waiting for the host to start…")
+                        .font(.footnote)
+                }
+                Button("Start Game") {
+                    host?.startGame()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(host == nil || playerCount < 2)
+            }
+            Button("Leave Session", action: leaveSession)
+                .buttonStyle(.bordered)
+        }
+        .padding()
+    }
+
+    private var game: some View {
+        let strokes = canvas.snapshot.strokes
+        let currentStroke = canvas.snapshot.currentStroke
+
+        return GeometryReader { geometry in
+            let width = min(geometry.size.width, geometry.size.height * canvasAspectRatio)
+            let size = CGSize(width: width, height: width / canvasAspectRatio)
+
+            Canvas { context, size in
+                for stroke in strokes {
+                    draw(stroke, in: context, size: size)
+                }
+                draw(currentStroke, in: context, size: size)
+            }
+            .frame(width: size.width, height: size.height)
+            .background(.white)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard canDraw, size.width > 0 else { return }
+                        canvas.appendPoint(normalized(value.location, in: size))
+                        publishSnapshot(immediate: false)
+                    }
+                    .onEnded { value in
+                        guard canDraw, size.width > 0 else { return }
+                        canvas.finishStroke(at: normalized(value.location, in: size))
+                        publishSnapshot(immediate: true)
+                    },
+                including: canDraw ? .all : .none
+            )
+            .accessibilityLabel("Drawing canvas")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                VStack(alignment: .leading) {
+                    if guest != nil {
+                        Text(connectionStatus)
+                    }
+                    Text(canDraw ? "You’re drawing" : "You’re watching")
+                }
+                .font(.footnote)
+                Spacer()
+                if canTakeTurn || guest?.isRequestingTurn == true {
+                    Button(guest?.isRequestingTurn == true ? "Taking Turn…" : "Take Turn") {
+                        host?.requestTurn()
+                        guest?.requestTurn()
+                    }
+                    .disabled(guest?.isRequestingTurn == true)
+                }
+                Button("Leave", action: leaveSession)
+            }
+            .buttonStyle(.bordered)
+            .padding()
+            .background(.bar)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Clear") {
+                    canvas.clear()
+                    publishSnapshot(immediate: true)
+                }
+                .disabled(!canDraw || (strokes.isEmpty && currentStroke.isEmpty))
+            }
+        }
+    }
+
+    private func publishSnapshot(immediate: Bool) {
+        host?.publishSnapshot(immediate: immediate)
+        guest?.publishSnapshot(immediate: immediate)
+    }
+
+    private func leaveSession() {
+        host = nil
+        guest = nil
+        canvas.clear()
+        connectionStatus = "Offline"
     }
 
     private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
