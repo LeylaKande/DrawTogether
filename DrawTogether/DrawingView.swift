@@ -4,6 +4,10 @@ struct DrawingView: View {
     @State private var strokes: [[CGPoint]] = []
     @State private var currentStroke: [CGPoint] = []
 
+    @State private var host: Host?
+    @State private var guest: Guest?
+    @State private var connectionStatus = "Offline"
+
     private let lineWidth: CGFloat = 5
 
     var body: some View {
@@ -31,6 +35,36 @@ struct DrawingView: View {
             .accessibilityLabel("Drawing canvas")
             .navigationTitle("Draw Together")
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Text(connectionStatus)
+                        .font(.footnote)
+                    Spacer()
+                    if host != nil || guest != nil {
+                        Button("Disconnect") {
+                            host = nil
+                            guest = nil
+                            connectionStatus = "Offline"
+                        }
+                    } else {
+                        Button("Host") {
+                            connectionStatus = "Starting host…"
+                            do {
+                                host = try Host { connectionStatus = $0 }
+                            } catch {
+                                connectionStatus = "Host unavailable: \(error.localizedDescription)"
+                            }
+                        }
+                        Button("Join") {
+                            connectionStatus = "Looking for host…"
+                            guest = Guest { connectionStatus = $0 }
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .padding()
+                .background(.bar)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Clear") {
