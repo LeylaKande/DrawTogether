@@ -17,8 +17,11 @@ final class PeerConnection {
 
     enum Message: Codable {
         case snapshot(CanvasModel.Snapshot)
-        case lobby(playerCount: Int)
+        case lobby(playerCount: Int, isPaused: Bool)
+        case requestStart
         case startGame(CanvasModel.Snapshot)
+        case pauseGame
+        case pausedCanvas(CanvasModel.Snapshot)
         case requestTurn
         case yieldTurn
         case relinquishTurn(CanvasModel.Snapshot)

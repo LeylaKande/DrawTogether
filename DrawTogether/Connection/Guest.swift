@@ -11,9 +11,11 @@ final class Guest {
 
     private(set) var playerCount: Int?
     private(set) var hasStarted = false
-    private(set) var canDraw = false
+    private(set) var isPaused = false
+    private var isDrawer = false
+    var canDraw: Bool { isDrawer && !isPaused }
     private(set) var isRequestingTurn = false
-    var canTakeTurn: Bool { hasStarted && peer != nil && !canDraw && !isRequestingTurn }
+    var canTakeTurn: Bool { hasStarted && !isPaused && peer != nil && !canDraw && !isRequestingTurn }
 
     init?(code: String, canvas: CanvasModel, onStatus: @escaping (String) -> Void) {
         guard PeerConnection.isValidSessionCode(code) else { return nil }
@@ -56,9 +58,9 @@ final class Guest {
             }, onEnd: { [weak self] error in
                 guard let self else { return }
                 self.peer = nil
-                self.canDraw = false
+                self.isDrawer = false
                 self.isRequestingTurn = false
-                if !self.hasStarted { self.playerCount = nil }
+                if !self.hasStarted || self.isPaused { self.playerCount = nil }
                 onStatus(error.map { "Connection ended: \($0.localizedDescription)" } ?? "Host disconnected")
             })
         }
@@ -67,6 +69,11 @@ final class Guest {
 
     deinit {
         browser.cancel()
+    }
+
+    func requestStart() {
+        guard !hasStarted, !isPaused, let playerCount, playerCount > 1 else { return }
+        peer?.send(.requestStart)
     }
 
     func requestTurn() {
@@ -82,20 +89,29 @@ final class Guest {
 
     private func receive(_ message: PeerConnection.Message) {
         switch message {
-        case .lobby(let playerCount) where !hasStarted:
+        case .lobby(let playerCount, let isPaused) where !hasStarted || self.isPaused:
             self.playerCount = playerCount
-        case .startGame(let snapshot) where !hasStarted:
+            self.isPaused = isPaused
+        case .startGame(let snapshot) where !hasStarted || isPaused:
             canvas.apply(snapshot)
             hasStarted = true
-        case .snapshot(let snapshot) where hasStarted && !canDraw:
+            isPaused = false
+        case .pauseGame where hasStarted && !isPaused:
+            isPaused = true
+            isRequestingTurn = false
+            if isDrawer {
+                canvas.finishCurrentStroke()
+                peer?.send(.pausedCanvas(canvas.snapshot))
+            }
+        case .snapshot(let snapshot) where hasStarted && !isPaused && !canDraw:
             canvas.apply(snapshot)
         case .grantTurn(let snapshot) where isRequestingTurn:
             canvas.apply(snapshot)
             isRequestingTurn = false
-            canDraw = true
+            isDrawer = true
         case .yieldTurn where canDraw:
             canvas.finishCurrentStroke()
-            canDraw = false
+            isDrawer = false
             peer?.send(.relinquishTurn(canvas.snapshot))
         case .turnUnavailable:
             isRequestingTurn = false

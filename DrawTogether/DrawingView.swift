@@ -13,12 +13,13 @@ struct DrawingView: View {
 
     private var canDraw: Bool { host?.canDraw ?? guest?.canDraw ?? false }
     private var canTakeTurn: Bool { host?.canTakeTurn ?? guest?.canTakeTurn ?? false }
+    private var isPaused: Bool { host?.isPaused ?? guest?.isPaused ?? false }
     private var playerCount: Int? { host?.playerCount ?? guest?.playerCount }
 
     var body: some View {
         NavigationStack {
             Group {
-                if host?.hasStarted == true || guest?.hasStarted == true {
+                if !isPaused && (host?.hasStarted == true || guest?.hasStarted == true) {
                     game
                 } else if host != nil || guest != nil {
                     lobby
@@ -68,7 +69,7 @@ struct DrawingView: View {
 
     private var lobby: some View {
         VStack(spacing: 16) {
-            Text("Lobby")
+            Text(isPaused ? "Game Paused" : "Lobby")
                 .font(.title)
             if let code = host?.code ?? guest?.code {
                 Text("Session code")
@@ -84,15 +85,28 @@ struct DrawingView: View {
             Text(connectionStatus)
                 .font(.footnote)
             if let playerCount {
-                if host == nil {
-                    Text("Waiting for the host to start…")
+                if isPaused && host == nil {
+                    Text("Waiting for the host to resume…")
                         .font(.footnote)
                 }
-                Button("Start Game") {
-                    host?.startGame()
+                if isPaused {
+                    Button("Resume Game") {
+                        host?.resumeGame()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(host?.canResume != true)
+                    if host?.canResume == false {
+                        Text("Waiting for the drawer’s canvas…")
+                            .font(.footnote)
+                    }
+                } else {
+                    Button("Start Game") {
+                        host?.startGame()
+                        guest?.requestStart()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(playerCount < 2)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(host == nil || playerCount < 2)
             }
             Button("Leave Session", action: leaveSession)
                 .buttonStyle(.bordered)
@@ -149,7 +163,9 @@ struct DrawingView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 VStack(alignment: .leading) {
-                    if guest != nil {
+                    if let lobbyError = host?.lobbyError {
+                        Text(lobbyError)
+                    } else if guest != nil {
                         Text(connectionStatus)
                     }
                     Text(canDraw ? "You’re drawing" : "You’re watching")
@@ -170,7 +186,17 @@ struct DrawingView: View {
             .background(.bar)
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let host {
+                    Menu {
+                        Button("Add Player", systemImage: "person.badge.plus") {
+                            host.pauseToAddPlayer()
+                        }
+                    } label: {
+                        Label("Players", systemImage: "person.badge.plus")
+                    }
+                    .disabled(!host.canPause)
+                }
                 Button("Clear") {
                     canvas.clear()
                     publishSnapshot(immediate: true)

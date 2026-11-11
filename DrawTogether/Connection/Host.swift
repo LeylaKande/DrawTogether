@@ -6,7 +6,9 @@ import Observation
 final class Host {
     let code = String(Int.random(in: 10000...99999))
 
-    private let listener: NWListener
+    private var listener: NWListener?
+    private let serviceID = UUID()
+    private let onStatus: (String) -> Void
     private let canvas: CanvasModel
     private var peers: [UUID: PeerConnection] = [:]
     private var readyGuests: Set<UUID> = []
@@ -15,37 +17,49 @@ final class Host {
     private var nextDrawer: UUID?
 
     private(set) var hasStarted = false
+    private(set) var isPaused = false
+    private(set) var lobbyError: String?
+    private var waitingForDrawer = false
+
     var playerCount: Int { 1 + readyGuests.count }
-    var canDraw: Bool { hasStarted && guestDrawer == nil }
-    var canTakeTurn: Bool { hasStarted && guestDrawer != nil && nextDrawer == nil }
+    var canDraw: Bool { hasStarted && !isPaused && guestDrawer == nil }
+    var canTakeTurn: Bool { hasStarted && !isPaused && guestDrawer != nil && nextDrawer == nil }
+    var canPause: Bool { hasStarted && !isPaused && nextDrawer == nil }
+    var canResume: Bool { isPaused && !waitingForDrawer }
 
     init(canvas: CanvasModel, onStatus: @escaping (String) -> Void) throws {
         self.canvas = canvas
-        listener = try NWListener(using: .tcp)
-        let name = PeerConnection.sessionNamePrefix(for: code) + UUID().uuidString
+        self.onStatus = onStatus
+        try openLobby()
+    }
+
+    private func openLobby() throws {
+        let listener = try NWListener(using: .tcp)
+        let name = PeerConnection.sessionNamePrefix(for: code) + serviceID.uuidString
         listener.service = NWListener.Service(name: name, type: PeerConnection.serviceType)
-        listener.stateUpdateHandler = { [weak self] state in
-            guard let self, !self.hasStarted else { return }
+        self.listener = listener
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard let self, let listener, self.listener === listener else { return }
             switch state {
             case .ready:
-                onStatus("Waiting for players…")
+                self.onStatus("Waiting for players…")
             case .waiting(let error), .failed(let error):
-                onStatus("Host unavailable: \(error.localizedDescription)")
+                self.onStatus("Host unavailable: \(error.localizedDescription)")
             default:
                 break
             }
         }
-        listener.newConnectionHandler = { [weak self] connection in
-            guard let self, !self.hasStarted else {
+        listener.newConnectionHandler = { [weak self, weak listener] connection in
+            guard let self, let listener, self.listener === listener else {
                 connection.cancel()
                 return
             }
 
             let id = UUID()
-            self.peers[id] = PeerConnection(connection, onReady: { [weak self] in
-                guard let self, !self.hasStarted else { return }
+            self.peers[id] = PeerConnection(connection, onReady: { [weak self, weak listener] in
+                guard let self, let listener, self.listener === listener else { return }
                 self.readyGuests.insert(id)
-                self.broadcast(.lobby(playerCount: self.playerCount))
+                self.broadcastLobby()
             }, onMessage: { [weak self] message in
                 self?.receive(message, from: id)
             }, onEnd: { [weak self] _ in
@@ -56,13 +70,44 @@ final class Host {
     }
 
     deinit {
-        listener.cancel()
+        listener?.cancel()
     }
 
     func startGame() {
         guard !hasStarted, playerCount > 1 else { return }
         hasStarted = true
-        listener.cancel()
+        closeLobbyAndPlay()
+    }
+
+    func pauseToAddPlayer() {
+        guard canPause else { return }
+        lobbyError = nil
+        do {
+            try openLobby()
+        } catch {
+            lobbyError = "Couldn’t reopen the lobby: \(error.localizedDescription)"
+            return
+        }
+
+        isPaused = true
+        waitingForDrawer = guestDrawer != nil
+        if !waitingForDrawer {
+            canvas.finishCurrentStroke()
+        }
+        onStatus("Opening the lobby…")
+        broadcast(.pauseGame)
+        broadcastLobby()
+    }
+
+    func resumeGame() {
+        guard canResume else { return }
+        isPaused = false
+        closeLobbyAndPlay()
+    }
+
+    private func closeLobbyAndPlay() {
+        listener?.cancel()
+        listener = nil
         peers = peers.filter { readyGuests.contains($0.key) }
         broadcast(.startGame(canvas.snapshot))
     }
@@ -104,7 +149,28 @@ final class Host {
     }
 
     private func receive(_ message: PeerConnection.Message, from id: UUID) {
-        guard hasStarted, readyGuests.contains(id) else { return }
+        guard readyGuests.contains(id) else { return }
+        if !hasStarted {
+            if case .requestStart = message {
+                startGame()
+            }
+            return
+        }
+        if isPaused {
+            guard id == guestDrawer, waitingForDrawer else { return }
+            switch message {
+            case .snapshot(let snapshot):
+                canvas.apply(snapshot)
+            case .pausedCanvas(let snapshot):
+                canvas.apply(snapshot)
+                canvas.finishCurrentStroke()
+                waitingForDrawer = false
+            default:
+                break
+            }
+            return
+        }
+
         switch message {
         case .snapshot(let snapshot) where guestDrawer == id:
             canvas.apply(snapshot)
@@ -125,12 +191,21 @@ final class Host {
     private func removeGuest(_ id: UUID) {
         peers.removeValue(forKey: id)
         guard readyGuests.remove(id) != nil else { return }
-        if !hasStarted {
-            broadcast(.lobby(playerCount: playerCount))
+        if !hasStarted || isPaused {
+            if guestDrawer == id {
+                canvas.finishCurrentStroke()
+                guestDrawer = nil
+                waitingForDrawer = false
+            }
+            broadcastLobby()
         } else if guestDrawer == id {
             canvas.finishCurrentStroke()
             grantTurn(to: nextDrawer ?? hostID)
         }
+    }
+
+    private func broadcastLobby() {
+        broadcast(.lobby(playerCount: playerCount, isPaused: isPaused))
     }
 
     private func broadcast(_ message: PeerConnection.Message, except excluded: UUID? = nil) {
