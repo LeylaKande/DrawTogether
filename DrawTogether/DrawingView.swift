@@ -6,6 +6,7 @@ struct DrawingView: View {
     @State private var host: Host?
     @State private var guest: Guest?
     @State private var joinCode = ""
+    @State private var penColor: CanvasModel.PenColor = .black
     @State private var connectionStatus = "Offline"
 
     private let canvasAspectRatio: CGFloat = 3.0 / 4.0
@@ -111,28 +112,39 @@ struct DrawingView: View {
                 for stroke in strokes {
                     draw(stroke, in: context, size: size)
                 }
-                draw(currentStroke, in: context, size: size)
+                if let currentStroke {
+                    draw(currentStroke, in: context, size: size)
+                }
             }
             .frame(width: size.width, height: size.height)
             .background(.white)
             .clipped()
+            .overlay {
+                Rectangle()
+                    .strokeBorder(.gray, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard canDraw, size.width > 0 else { return }
-                        canvas.appendPoint(normalized(value.location, in: size))
+                        canvas.appendPoint(normalized(value.location, in: size), color: penColor)
                         publishSnapshot(immediate: false)
                     }
                     .onEnded { value in
                         guard canDraw, size.width > 0 else { return }
-                        canvas.finishStroke(at: normalized(value.location, in: size))
+                        canvas.finishStroke(at: normalized(value.location, in: size), color: penColor)
                         publishSnapshot(immediate: true)
                     },
                 including: canDraw ? .all : .none
             )
             .accessibilityLabel("Drawing canvas")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color(uiColor: .systemGray5))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            penPalette
         }
         .safeAreaInset(edge: .bottom) {
             HStack {
@@ -163,8 +175,48 @@ struct DrawingView: View {
                     canvas.clear()
                     publishSnapshot(immediate: true)
                 }
-                .disabled(!canDraw || (strokes.isEmpty && currentStroke.isEmpty))
+                .disabled(!canDraw || (strokes.isEmpty && currentStroke == nil))
             }
+        }
+    }
+
+    private var penPalette: some View {
+        HStack(spacing: 12) {
+            ForEach(CanvasModel.PenColor.allCases, id: \.self) { color in
+                Button {
+                    penColor = color
+                } label: {
+                    Circle()
+                        .fill(displayColor(color))
+                        .frame(width: 28, height: 28)
+                        .overlay {
+                            if color == penColor {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(color.rawValue.capitalized)
+                .accessibilityAddTraits(color == penColor ? .isSelected : [])
+            }
+        }
+        .disabled(!canDraw)
+        .opacity(canDraw ? 1 : 0.55)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+    }
+
+    private func displayColor(_ color: CanvasModel.PenColor) -> Color {
+        switch color {
+        case .black: .black
+        case .red: .red
+        case .blue: .blue
+        case .green: Color(red: 0, green: 0.5, blue: 0.2)
         }
     }
 
@@ -187,21 +239,22 @@ struct DrawingView: View {
         )
     }
 
-    private func draw(_ normalizedPoints: [CGPoint], in context: GraphicsContext, size: CGSize) {
-        guard !normalizedPoints.isEmpty else { return }
-        let points = normalizedPoints.map {
+    private func draw(_ stroke: CanvasModel.Stroke, in context: GraphicsContext, size: CGSize) {
+        let ink = displayColor(stroke.color)
+        let points = stroke.points.map {
             CGPoint(x: $0.x * size.width, y: $0.y * size.height)
         }
         let lineWidth = size.width / 75
 
-        if let first = points.first, points.count == 1 {
+        guard let first = points.first else { return }
+        if points.count == 1 {
             let dot = CGRect(
                 x: first.x - lineWidth / 2,
                 y: first.y - lineWidth / 2,
                 width: lineWidth,
                 height: lineWidth
             )
-            context.fill(Path(ellipseIn: dot), with: .color(.black))
+            context.fill(Path(ellipseIn: dot), with: .color(ink))
             return
         }
 
@@ -209,7 +262,7 @@ struct DrawingView: View {
         path.addLines(points)
         context.stroke(
             path,
-            with: .color(.black),
+            with: .color(ink),
             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
         )
     }
