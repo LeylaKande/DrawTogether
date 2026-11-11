@@ -18,6 +18,11 @@ final class CanvasModel {
 
     func finishStroke(at point: CGPoint) {
         appendPoint(point)
+        finishCurrentStroke()
+    }
+
+    func finishCurrentStroke() {
+        guard !snapshot.currentStroke.isEmpty else { return }
         snapshot.strokes.append(snapshot.currentStroke)
         snapshot.currentStroke = []
     }

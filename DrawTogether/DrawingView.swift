@@ -9,6 +9,9 @@ struct DrawingView: View {
 
     private let canvasAspectRatio: CGFloat = 3.0 / 4.0
 
+    private var peer: PeerConnection? { host?.peer ?? guest?.peer }
+    private var canDraw: Bool { peer?.canDraw ?? (guest == nil) }
+
     var body: some View {
         let strokes = canvas.snapshot.strokes
         let currentStroke = canvas.snapshot.currentStroke
@@ -31,15 +34,16 @@ struct DrawingView: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            guard guest == nil, size.width > 0 else { return }
+                            guard canDraw, size.width > 0 else { return }
                             canvas.appendPoint(normalized(value.location, in: size))
-                            host?.publishSnapshot()
+                            peer?.publishSnapshot()
                         }
                         .onEnded { value in
-                            guard guest == nil, size.width > 0 else { return }
+                            guard canDraw, size.width > 0 else { return }
                             canvas.finishStroke(at: normalized(value.location, in: size))
-                            host?.publishSnapshot(immediate: true)
-                        }
+                            peer?.publishSnapshot(immediate: true)
+                        },
+                    including: canDraw ? .all : .none
                 )
                 .accessibilityLabel("Drawing canvas")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,11 +52,23 @@ struct DrawingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
                 HStack {
-                    Text(connectionStatus)
-                        .font(.footnote)
+                    VStack(alignment: .leading) {
+                        Text(connectionStatus)
+                        if let peer, peer.isReady {
+                            Text(peer.canDraw ? "You’re drawing" : "You’re watching")
+                        }
+                    }
+                    .font(.footnote)
                     Spacer()
+                    if let peer, peer.canTakeTurn || peer.isRequestingTurn {
+                        Button(peer.isRequestingTurn ? "Taking Turn…" : "Take Turn") {
+                            peer.requestTurn()
+                        }
+                        .disabled(peer.isRequestingTurn)
+                    }
                     if host != nil || guest != nil {
                         Button("Disconnect") {
+                            canvas.finishCurrentStroke()
                             host = nil
                             guest = nil
                             connectionStatus = "Offline"
@@ -80,9 +96,9 @@ struct DrawingView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Clear") {
                         canvas.clear()
-                        host?.publishSnapshot(immediate: true)
+                        peer?.publishSnapshot(immediate: true)
                     }
-                    .disabled(guest != nil || (strokes.isEmpty && currentStroke.isEmpty))
+                    .disabled(!canDraw || (strokes.isEmpty && currentStroke.isEmpty))
                 }
             }
         }
