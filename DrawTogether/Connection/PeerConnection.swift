@@ -1,9 +1,25 @@
 import Foundation
 import Network
 
-// All session and connection callbacks run on the main queue.
-final class PeerConnection {
-    static let serviceType = "_drawtogether._tcp"
+typealias PeerConnection = FramedPeer<GameMessage>
+
+enum GameMessage: Codable {
+    case snapshot(CanvasModel.Snapshot)
+    case lobby(playerCount: Int, isPaused: Bool)
+    case requestStart
+    case startGame(CanvasModel.Snapshot)
+    case pauseGame
+    case pausedCanvas(CanvasModel.Snapshot)
+    case requestTurn
+    case yieldTurn
+    case relinquishTurn(CanvasModel.Snapshot)
+    case grantTurn(CanvasModel.Snapshot)
+    case turnUnavailable
+}
+
+extension FramedPeer where Payload == GameMessage {
+    static var serviceType: String { "_drawtogether._tcp" }
+
     static func isValidSessionCode(_ code: String) -> Bool {
         let digits = code.utf8
         return digits.count == 5 && digits.allSatisfy { (48...57).contains($0) }
@@ -13,21 +29,16 @@ final class PeerConnection {
         "DrawTogether-\(code)-"
     }
 
-    private static let maximumPayloadSize = 4 * 1024 * 1024
-
-    enum Message: Codable {
-        case snapshot(CanvasModel.Snapshot)
-        case lobby(playerCount: Int, isPaused: Bool)
-        case requestStart
-        case startGame(CanvasModel.Snapshot)
-        case pauseGame
-        case pausedCanvas(CanvasModel.Snapshot)
-        case requestTurn
-        case yieldTurn
-        case relinquishTurn(CanvasModel.Snapshot)
-        case grantTurn(CanvasModel.Snapshot)
-        case turnUnavailable
+    func publishSnapshot(_ snapshot: CanvasModel.Snapshot, immediate: Bool) {
+        publishLatest(.snapshot(snapshot), immediate: immediate)
     }
+}
+
+// All session and connection callbacks run on the main queue.
+final class FramedPeer<Payload: Codable> {
+    typealias Message = Payload
+
+    private static var maximumPayloadSize: Int { 4 * 1024 * 1024 }
 
     private enum SnapshotError: LocalizedError {
         case invalidFrame
@@ -49,7 +60,7 @@ final class PeerConnection {
     private var hasEnded = false
     private var lastSendTime = -Double.infinity
     private var isSendingSnapshot = false
-    private var pendingSnapshot: CanvasModel.Snapshot?
+    private var pendingMessage: Message?
 
     init(
         _ connection: NWConnection,
@@ -84,23 +95,23 @@ final class PeerConnection {
         connection.cancel()
     }
 
-    func publishSnapshot(_ snapshot: CanvasModel.Snapshot, immediate: Bool) {
+    func publishLatest(_ message: Message, immediate: Bool) {
         guard isReady else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard immediate || now - lastSendTime >= 1.0 / 20 else { return }
         guard !isSendingSnapshot else {
-            pendingSnapshot = snapshot
+            pendingMessage = message
             return
         }
 
         isSendingSnapshot = true
         lastSendTime = now
-        sendFrame(.snapshot(snapshot)) { [weak self] in
+        sendFrame(message) { [weak self] in
             guard let self else { return }
             self.isSendingSnapshot = false
-            if let pending = self.pendingSnapshot {
-                self.pendingSnapshot = nil
-                self.publishSnapshot(pending, immediate: true)
+            if let pending = self.pendingMessage {
+                self.pendingMessage = nil
+                self.publishLatest(pending, immediate: true)
             }
         }
     }
@@ -108,7 +119,7 @@ final class PeerConnection {
     // A control message can supersede a queued snapshot at a turn boundary.
     func send(_ message: Message) {
         guard isReady else { return }
-        pendingSnapshot = nil
+        pendingMessage = nil
         sendFrame(message)
     }
 

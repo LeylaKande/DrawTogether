@@ -12,8 +12,6 @@ struct DrawingView: View {
     @State private var ideas: [String] = []
     @State private var promptDeck = DrawingView.prompts.shuffled()
 
-    private let canvasAspectRatio: CGFloat = 3.0 / 4.0
-
     private var canDraw: Bool { host?.canDraw ?? guest?.canDraw ?? false }
     private var canTakeTurn: Bool { host?.canTakeTurn ?? guest?.canTakeTurn ?? false }
     private var isPaused: Bool { host?.isPaused ?? guest?.isPaused ?? false }
@@ -67,6 +65,10 @@ struct DrawingView: View {
             }
             .buttonStyle(.bordered)
             .disabled(!PeerConnection.isValidSessionCode(joinCode))
+
+            NavigationLink("Free Draw Experiment") {
+                FreeDrawView()
+            }
 
             if connectionStatus != "Offline" {
                 Text(connectionStatus)
@@ -127,45 +129,15 @@ struct DrawingView: View {
         let strokes = canvas.snapshot.strokes
         let currentStroke = canvas.snapshot.currentStroke
 
-        return GeometryReader { geometry in
-            let width = min(geometry.size.width, geometry.size.height * canvasAspectRatio)
-            let size = CGSize(width: width, height: width / canvasAspectRatio)
-
-            Canvas { context, size in
-                for stroke in strokes {
-                    draw(stroke, in: context, size: size)
-                }
-                if let currentStroke {
-                    draw(currentStroke, in: context, size: size)
-                }
+        return DrawingSurface(layers: [canvas.snapshot], canDraw: canDraw) { point, finished in
+            guard canDraw else { return }
+            if finished {
+                canvas.finishStroke(at: point, color: penColor)
+            } else {
+                canvas.appendPoint(point, color: penColor)
             }
-            .frame(width: size.width, height: size.height)
-            .background(.white)
-            .clipped()
-            .overlay {
-                Rectangle()
-                    .strokeBorder(.gray, lineWidth: 2)
-                    .allowsHitTesting(false)
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard canDraw, size.width > 0 else { return }
-                        canvas.appendPoint(normalized(value.location, in: size), color: penColor)
-                        publishSnapshot(immediate: false)
-                    }
-                    .onEnded { value in
-                        guard canDraw, size.width > 0 else { return }
-                        canvas.finishStroke(at: normalized(value.location, in: size), color: penColor)
-                        publishSnapshot(immediate: true)
-                    },
-                including: canDraw ? .all : .none
-            )
-            .accessibilityLabel("Drawing canvas")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            publishSnapshot(immediate: finished)
         }
-        .background(Color(uiColor: .systemGray5))
         .safeAreaInset(edge: .top, spacing: 0) {
             penPalette
         }
@@ -251,7 +223,7 @@ struct DrawingView: View {
                     penColor = color
                 } label: {
                     Circle()
-                        .fill(displayColor(color))
+                        .fill(color.displayColor)
                         .frame(width: 28, height: 28)
                         .overlay {
                             if color == penColor {
@@ -275,15 +247,6 @@ struct DrawingView: View {
         .background(.bar)
     }
 
-    private func displayColor(_ color: CanvasModel.PenColor) -> Color {
-        switch color {
-        case .black: .black
-        case .red: .red
-        case .blue: .blue
-        case .green: Color(red: 0, green: 0.5, blue: 0.2)
-        }
-    }
-
     private func publishSnapshot(immediate: Bool) {
         host?.publishSnapshot(immediate: immediate)
         guest?.publishSnapshot(immediate: immediate)
@@ -294,41 +257,6 @@ struct DrawingView: View {
         guest = nil
         canvas.clear()
         connectionStatus = "Offline"
-    }
-
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(
-            x: min(1, max(0, point.x / size.width)),
-            y: min(1, max(0, point.y / size.height))
-        )
-    }
-
-    private func draw(_ stroke: CanvasModel.Stroke, in context: GraphicsContext, size: CGSize) {
-        let ink = displayColor(stroke.color)
-        let points = stroke.points.map {
-            CGPoint(x: $0.x * size.width, y: $0.y * size.height)
-        }
-        let lineWidth = size.width / 75
-
-        guard let first = points.first else { return }
-        if points.count == 1 {
-            let dot = CGRect(
-                x: first.x - lineWidth / 2,
-                y: first.y - lineWidth / 2,
-                width: lineWidth,
-                height: lineWidth
-            )
-            context.fill(Path(ellipseIn: dot), with: .color(ink))
-            return
-        }
-
-        var path = Path()
-        path.addLines(points)
-        context.stroke(
-            path,
-            with: .color(ink),
-            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-        )
     }
 }
 

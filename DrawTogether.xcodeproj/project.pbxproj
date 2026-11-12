@@ -13,6 +13,9 @@
 		A0000000000000000000001A /* Host.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000018 /* Host.swift */; };
 		A0000000000000000000001B /* Guest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* Guest.swift */; };
 		A0000000000000000000001D /* CanvasModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001C /* CanvasModel.swift */; };
+		A0000000000000000000001F /* DrawingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001E /* DrawingSurface.swift */; };
+		A00000000000000000000025 /* FreeDrawSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* FreeDrawSession.swift */; };
+		A00000000000000000000027 /* FreeDrawView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* FreeDrawView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +27,9 @@
 		A00000000000000000000018 /* Host.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Host.swift; sourceTree = "<group>"; };
 		A00000000000000000000019 /* Guest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Guest.swift; sourceTree = "<group>"; };
 		A0000000000000000000001C /* CanvasModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasModel.swift; sourceTree = "<group>"; };
+		A0000000000000000000001E /* DrawingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingSurface.swift; sourceTree = "<group>"; };
+		A00000000000000000000024 /* FreeDrawSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeDrawSession.swift; sourceTree = "<group>"; };
+		A00000000000000000000026 /* FreeDrawView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeDrawView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -43,6 +49,8 @@
 				A00000000000000000000017 /* Connection */,
 				A00000000000000000000016 /* Info.plist */,
 				A0000000000000000000001C /* CanvasModel.swift */,
+				A0000000000000000000001E /* DrawingSurface.swift */,
+				A00000000000000000000028 /* FreeDraw */,
 			);
 			path = DrawTogether;
 			sourceTree = "<group>";
@@ -63,6 +71,15 @@
 				A00000000000000000000014 /* PeerConnection.swift */,
 			);
 			path = Connection;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000028 /* FreeDraw */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000024 /* FreeDrawSession.swift */,
+				A00000000000000000000026 /* FreeDrawView.swift */,
+			);
+			path = FreeDraw;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -119,6 +136,9 @@
 				A0000000000000000000001A /* Host.swift in Sources */,
 				A0000000000000000000001B /* Guest.swift in Sources */,
 				A0000000000000000000001D /* CanvasModel.swift in Sources */,
+				A00000000000000000000027 /* FreeDrawView.swift in Sources */,
+				A00000000000000000000025 /* FreeDrawSession.swift in Sources */,
+				A0000000000000000000001F /* DrawingSurface.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
