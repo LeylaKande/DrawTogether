@@ -28,7 +28,16 @@ struct DrawingView: View {
                     startScreen
                 }
             }
-            .navigationTitle("Draw Together")
+            .background {
+                LinearGradient(
+                    colors: [.indigo.opacity(0.16), .mint.opacity(0.14), Color(uiColor: .systemBackground)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            }
+            .tint(.indigo)
+            .navigationTitle(host == nil && guest == nil ? "" : "Draw Together")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: canDraw) { _, canDraw in
                 if !canDraw {
@@ -40,54 +49,108 @@ struct DrawingView: View {
     }
 
     private var startScreen: some View {
-        VStack(spacing: 16) {
-            Button("Host Session") {
-                canvas.clear()
-                connectionStatus = "Starting session…"
-                do {
-                    host = try Host(canvas: canvas) { connectionStatus = $0 }
-                } catch {
-                    connectionStatus = "Host unavailable: \(error.localizedDescription)"
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Image(systemName: "scribble.variable")
+                        .font(.system(size: 36, weight: .medium))
+                        .accessibilityHidden(true)
+                    Text("Draw Together")
+                        .font(.largeTitle.weight(.bold))
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Take turns drawing while everyone else guesses.")
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+                .background(.indigo.gradient, in: RoundedRectangle(cornerRadius: 24))
+
+                VStack(alignment: .leading, spacing: 16) {
+                    Button {
+                        canvas.clear()
+                        connectionStatus = "Starting session…"
+                        do {
+                            host = try Host(canvas: canvas) { connectionStatus = $0 }
+                        } catch {
+                            connectionStatus = "Host unavailable: \(error.localizedDescription)"
+                        }
+                    } label: {
+                        Label("Host Session", systemImage: "person.badge.plus")
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Divider()
+
+                    TextField("5-digit session code", text: $joinCode)
+                        .font(.title3.monospacedDigit())
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("5-digit session code")
+
+                    Button {
+                        canvas.clear()
+                        connectionStatus = "Looking for session \(joinCode)…"
+                        guest = Guest(code: joinCode, canvas: canvas) { connectionStatus = $0 }
+                    } label: {
+                        Label("Join Session", systemImage: "arrow.right")
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!PeerConnection.isValidSessionCode(joinCode))
+
+                    if connectionStatus != "Offline" {
+                        Text(connectionStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .padding(18)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+
+                NavigationLink {
+                    FreeDrawView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "pencil.and.scribble")
+                        Text("Free Draw Experiment")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                    .font(.headline)
+                    .padding(16)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
-            .buttonStyle(.borderedProminent)
-
-            TextField("5-digit session code", text: $joinCode)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240)
-                .accessibilityLabel("5-digit session code")
-
-            Button("Join Session") {
-                canvas.clear()
-                connectionStatus = "Looking for session \(joinCode)…"
-                guest = Guest(code: joinCode, canvas: canvas) { connectionStatus = $0 }
-            }
-            .buttonStyle(.bordered)
-            .disabled(!PeerConnection.isValidSessionCode(joinCode))
-
-            NavigationLink("Free Draw Experiment") {
-                FreeDrawView()
-            }
-
-            if connectionStatus != "Offline" {
-                Text(connectionStatus)
-                    .font(.footnote)
-            }
+            .frame(maxWidth: 480)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .padding()
     }
 
     private var lobby: some View {
         VStack(spacing: 16) {
             Text(isPaused ? "Game Paused" : "Lobby")
-                .font(.title)
+                .font(.title.weight(.bold))
+                .accessibilityAddTraits(.isHeader)
             if let code = host?.code ?? guest?.code {
-                Text("Session code")
-                    .font(.subheadline)
-                Text(code)
-                    .font(.largeTitle.monospacedDigit())
-                    .textSelection(.enabled)
+                VStack(spacing: 6) {
+                    Text("Session code")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(code)
+                        .font(.system(.largeTitle, design: .monospaced, weight: .bold))
+                        .foregroundStyle(.indigo)
+                        .textSelection(.enabled)
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 14)
+                .background(.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
             }
             if let playerCount {
                 Text("Players in session: \(playerCount)")
@@ -122,14 +185,19 @@ struct DrawingView: View {
             Button("Leave Session", action: leaveSession)
                 .buttonStyle(.bordered)
         }
-        .padding()
+        .multilineTextAlignment(.center)
+        .padding(24)
+        .frame(maxWidth: 440)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var game: some View {
         let strokes = canvas.snapshot.strokes
         let currentStroke = canvas.snapshot.currentStroke
 
-        return DrawingSurface(layers: [canvas.snapshot], canDraw: canDraw) { point, finished in
+        return DrawingSurface(layers: [canvas.snapshot], canDraw: canDraw, cornerRadius: 12, backdrop: .clear) { point, finished in
             guard canDraw else { return }
             if finished {
                 canvas.finishStroke(at: point, color: penColor)
@@ -154,17 +222,24 @@ struct DrawingView: View {
                 .font(.footnote)
                 Spacer()
                 if canTakeTurn || guest?.isRequestingTurn == true {
-                    Button(guest?.isRequestingTurn == true ? "Taking Turn…" : "Take Turn") {
+                    Button {
                         host?.requestTurn()
                         guest?.requestTurn()
+                    } label: {
+                        Label(guest?.isRequestingTurn == true ? "Taking Turn…" : "Take Turn", systemImage: "pencil")
+                            .fontWeight(.semibold)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(guest?.isRequestingTurn == true)
                 }
                 Button("Leave", action: leaveSession)
+                    .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
-            .padding()
-            .background(.bar)
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

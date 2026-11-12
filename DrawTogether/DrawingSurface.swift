@@ -3,6 +3,8 @@ import SwiftUI
 struct DrawingSurface: View {
     let layers: [CanvasModel.Snapshot]
     let canDraw: Bool
+    var cornerRadius: CGFloat = 0
+    var backdrop = Color(uiColor: .systemGray5)
     let onPoint: (CGPoint, Bool) -> Void
 
     private let canvasAspectRatio: CGFloat = 3.0 / 4.0
@@ -24,13 +26,13 @@ struct DrawingSurface: View {
             }
             .frame(width: size.width, height: size.height)
             .background(.white)
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay {
-                Rectangle()
-                    .strokeBorder(.gray, lineWidth: 2)
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(.gray.opacity(cornerRadius == 0 ? 1 : 0.45), lineWidth: 2)
                     .allowsHitTesting(false)
             }
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -46,7 +48,7 @@ struct DrawingSurface: View {
             .accessibilityLabel("Drawing canvas")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(uiColor: .systemGray5))
+        .background(backdrop)
     }
 
     private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
