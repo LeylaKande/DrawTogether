@@ -6,6 +6,7 @@ struct DrawingView: View {
     @State private var host: Host?
     @State private var guest: Guest?
     @State private var joinCode = ""
+    @FocusState private var isJoinCodeFocused: Bool
     @State private var penColor: CanvasModel.PenColor = .black
     @State private var connectionStatus = "Offline"
     @State private var showsIdeas = false
@@ -86,10 +87,25 @@ struct DrawingView: View {
                     TextField("5-digit session code", text: $joinCode)
                         .font(.title3.monospacedDigit())
                         .keyboardType(.numberPad)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .focused($isJoinCodeFocused)
                         .accessibilityLabel("5-digit session code")
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                        .background {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(uiColor: .secondarySystemBackground))
+                                .contentShape(Rectangle())
+                                .onTapGesture { isJoinCodeFocused = true }
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(isJoinCodeFocused ? Color.indigo : Color.secondary.opacity(0.3))
+                                .allowsHitTesting(false)
+                        }
 
                     Button {
+                        isJoinCodeFocused = false
                         canvas.clear()
                         connectionStatus = "Looking for session \(joinCode)…"
                         guest = Guest(code: joinCode, canvas: canvas) { connectionStatus = $0 }

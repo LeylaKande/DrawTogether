@@ -168,9 +168,10 @@
 		A00000000000000000000022 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RGRJ4YSN7L;
+				DEVELOPMENT_TEAM = JH7CQD4MLU;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DrawTogether/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Draw Together";
@@ -178,8 +179,9 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = demo.drawtogether;
+				PRODUCT_BUNDLE_IDENTIFIER = ch.demo.drawtogether;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -190,7 +192,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RGRJ4YSN7L;
+				DEVELOPMENT_TEAM = JH7CQD4MLU;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DrawTogether/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Draw Together";
@@ -198,7 +200,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = demo.drawtogether;
+				PRODUCT_BUNDLE_IDENTIFIER = ch.demo.drawtogether;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;

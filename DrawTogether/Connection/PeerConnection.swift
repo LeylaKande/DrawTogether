@@ -146,6 +146,7 @@ final class FramedPeer<Payload: Codable> {
         onEnd(error)
     }
 
+    // encode msg as JSON and encode with 4-byte payload length
     static func frame(_ message: Message) throws -> Data {
         let payload = try JSONEncoder().encode(message)
         guard payload.count <= maximumPayloadSize else { throw SnapshotError.canvasTooLarge }
