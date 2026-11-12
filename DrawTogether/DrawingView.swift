@@ -8,6 +8,9 @@ struct DrawingView: View {
     @State private var joinCode = ""
     @State private var penColor: CanvasModel.PenColor = .black
     @State private var connectionStatus = "Offline"
+    @State private var showsIdeas = false
+    @State private var ideas: [String] = []
+    @State private var promptDeck = DrawingView.prompts.shuffled()
 
     private let canvasAspectRatio: CGFloat = 3.0 / 4.0
 
@@ -29,6 +32,12 @@ struct DrawingView: View {
             }
             .navigationTitle("Draw Together")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: canDraw) { _, canDraw in
+                if !canDraw {
+                    showsIdeas = false
+                    ideas = []
+                }
+            }
         }
     }
 
@@ -187,6 +196,9 @@ struct DrawingView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if canDraw {
+                    ideasButton
+                }
                 if let host {
                     Menu {
                         Button("Add Player", systemImage: "person.badge.plus") {
@@ -204,6 +216,32 @@ struct DrawingView: View {
                 .disabled(!canDraw || (strokes.isEmpty && currentStroke == nil))
             }
         }
+    }
+
+    private var ideasButton: some View {
+        Button {
+            shuffleIdeas()
+            showsIdeas = true
+        } label: {
+            Label("Ideas", systemImage: "lightbulb")
+        }
+        .popover(isPresented: $showsIdeas) {
+            IdeasPopover(ideas: $ideas, onShuffle: shuffleIdeas)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func shuffleIdeas() {
+        var nextIdeas: [String] = []
+        for _ in 0..<3 {
+            if promptDeck.isEmpty {
+                promptDeck = Self.prompts.shuffled()
+            }
+            if let index = promptDeck.lastIndex(where: { !nextIdeas.contains($0) }) {
+                nextIdeas.append(promptDeck.remove(at: index))
+            }
+        }
+        ideas = nextIdeas
     }
 
     private var penPalette: some View {
@@ -292,4 +330,75 @@ struct DrawingView: View {
             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
         )
     }
+}
+
+private struct IdeasPopover: View {
+    @Binding var ideas: [String]
+    let onShuffle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(ideas, id: \.self) { idea in
+                Text(idea)
+            }
+            Button("Shuffle", systemImage: "shuffle", action: onShuffle)
+                .buttonStyle(.bordered)
+        }
+        .padding()
+    }
+}
+
+private extension DrawingView {
+    static let prompts = [
+        "Der König der Löwen",
+        "Blumenbeet",
+        "Tom und Jerry",
+        "Findet Nemo",
+        "Jurassic Park",
+        "Der Zauberer von Oz",
+        "Geldwäsche",
+        "Treppenhaus",
+        "Lesebrille",
+        "Taschenrechner",
+        "Zahnrad",
+        "Leiter",
+        "Apfel",
+        "Fenster",
+        "Stuhl",
+        "Tisch",
+        "Spinne",
+        "Hut",
+        "Pizza",
+        "Schuh",
+        "Stern",
+        "Schmetterling",
+        "Lampe",
+        "Kokosnuss",
+        "Auto",
+        "Segelboot",
+        "Ball",
+        "Flugdrachen",
+        "Tasse",
+        "Herz",
+        "Katze",
+        "Schatztruhe",
+        "Iglu",
+        "Burg",
+        "Aquarium",
+        "Elefant",
+        "Piratenschiff",
+        "Schneemann",
+        "Meerjungfrau",
+        "Skateboard",
+        "Vogelscheuche",
+        "Helikopter",
+        "Surfbrett",
+        "Vogelhäuschen",
+        "Vulkan",
+        "Gitarre",
+        "Teleskop",
+        "Trampolin",
+        "Lagerfeuer",
+        "Rakete",
+    ]
 }
